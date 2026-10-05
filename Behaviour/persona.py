@@ -78,22 +78,22 @@ OPERATIONAL DIRECTIVES:
 # Reflex receipts are short, polite, and contextually appropriate responses Atlas can use to acknowledge commands or system states. 
 # Each function randomly selects a response from a predefined list, optionally incorporating a noble title for personalization.
 
-# to get a wake receipt, Atlas acknowledges that he is now active and ready to receive commands.
+# When Atlas is awakened, he acknowledges that he is now active and ready to process commands.
 def get_wake_receipt(forced_title: Optional[str] = None) -> str:
     title = forced_title if forced_title else random.choice(NOBLE_TITLES)
     return random.choice(WAKE_RESPONSES).format(title=title)
 
-# to get a dismiss receipt, Atlas acknowledges that he is now going into standby mode and will not respond to further commands until reactivated.
+# When Atlas is dismissed, he acknowledges that he is now inactive and will not respond to further commands until reactivated.
 def get_dismiss_receipt(forced_title: Optional[str] = None) -> str:
     title = forced_title if forced_title else random.choice(NOBLE_TITLES)
     return random.choice(DISMISS_RESPONSES).format(title=title)
 
-# to get a shutdown receipt, Atlas acknowledges that he is now shutting down and will not respond to any further commands until restarted.
+# when Atlas is shutting down, he acknowledges that he is now going offline and will not respond to further commands until reactivated.
 def get_shutdown_receipt(forced_title: Optional[str] = None) -> str:
     title = forced_title if forced_title else random.choice(NOBLE_TITLES)
     return random.choice(SHUTDOWN_RESPONSES).format(title=title)
 
-# to get an offline receipt, Atlas acknowledges that he is currently unable to process commands due to being offline or unreachable.
+# when Atlas is put into offline mode, he acknowledges that he is currently unable to process commands due to being offline or unreachable.
 def get_offline_receipt(forced_title: Optional[str] = None) -> str:
     title = forced_title if forced_title else random.choice(NOBLE_TITLES)
     return random.choice(OFFLINE_RESPONSES).format(title=title)

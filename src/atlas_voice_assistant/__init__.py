@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from atlas-voice-assistant!")
+    from atlas import main as run_atlas
+
+    run_atlas()

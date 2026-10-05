@@ -1,7 +1,8 @@
+import logging
 import os
 import socket
-import logging
 from pathlib import Path
+
 from dotenv import load_dotenv
 from pydantic import SecretStr
 
@@ -19,69 +20,71 @@ class _AfcWarningFilter(logging.Filter):
 
 logging.getLogger("google_genai.models").addFilter(_AfcWarningFilter())
 
-# -----------------------------------------------------------------------------
-# 1. Network Connectivity Probe
-# -----------------------------------------------------------------------------
 def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.0) -> bool:
     """Checks DNS connectivity to skip cloud timeouts when offline."""
     try:
-        socket.setdefaulttimeout(timeout)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((host, port))
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
         return True
     except OSError:
         return False
 
-# -----------------------------------------------------------------------------
-# 2. 5-Tier Waterfall Setup
-# -----------------------------------------------------------------------------
+
 gemini_key = os.getenv("GEMINI_API_KEY")
 groq_key = os.getenv("GROQ_API_KEY")
+request_timeout = float(os.getenv("ATLAS_LLM_TIMEOUT", "8"))
 
-# Tier 1: Google GenAI
-t1a = ChatGoogleGenerativeAI(
-    model="gemini-3.7-flash",
-    temperature=0.7,
-    max_tokens=128,
-    timeout=10,
-    max_retries=2,
-    thinking_level="low",
-    google_api_key=SecretStr(gemini_key) if gemini_key else None,
-)
-t1b = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    temperature=0.7,
-    max_tokens=128,
-    timeout=10,
-    max_retries=2,
-    thinking_level="low",
-    google_api_key=SecretStr(gemini_key) if gemini_key else None,
-)
 
-# Tier 2: Groq Cloud
-t2a = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0.7,
-    max_tokens=128,
-    timeout=10,
-    max_retries=2,
-    api_key=SecretStr(groq_key) if groq_key else None,
-)
-t2b = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0.7,
-    max_tokens=128,
-    timeout=10,
-    max_retries=2,
-    api_key=SecretStr(groq_key) if groq_key else None,
-)
+def _secret(value: str | None) -> SecretStr | None:
+    return SecretStr(value) if value else None
 
-# Tier 3: Local Ollama Air-Gap (RTX 5060)
+
+def _build_groq(model: str) -> ChatGroq:
+    return ChatGroq(
+        model=model,
+        temperature=0.7,
+        max_tokens=512,
+        reasoning_effort="low",
+        reasoning_format="hidden",
+        timeout=request_timeout,
+        max_retries=0,
+        api_key=_secret(groq_key),
+    )
+
+
+def _build_gemini(model: str) -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(
+        model=model,
+        temperature=0.7,
+        max_tokens=128,
+        timeout=request_timeout,
+        max_retries=0,
+        thinking_level="low",
+        google_api_key=_secret(gemini_key),
+    )
+
+
+# Groq is first because both models were verified successfully. Gemini remains
+# useful when Groq is unavailable, and Ollama is the final offline fallback.
+t1a = _build_groq("openai/gpt-oss-120b") if groq_key else None
+t1b = _build_groq("openai/gpt-oss-20b") if groq_key else None
+t2a = _build_gemini("gemini-3.8-flash") if gemini_key else None
+t2b = _build_gemini("gemini-3.7-flash") if gemini_key else None
 t3 = ChatOllama(model="qwen2.5:3b", temperature=0.7, num_predict=128)
 
-# Standardized waterfall runnable
-llm_waterfall = t1a.with_fallbacks([t1b, t2a, t2b, t3])
+
+def _available_cloud_models():
+    return [provider for provider in (t1a, t1b, t2a, t2b) if provider is not None]
+
+
+def _make_waterfall(online: bool):
+    candidates = _available_cloud_models() + [t3] if online else [t3]
+    primary, *fallbacks = candidates
+    return primary.with_fallbacks(fallbacks, exceptions_to_handle=(Exception,))
+
 
 def get_llm():
-    """Returns the runnable LLM. Drops straight to local Ollama if offline."""
-    return llm_waterfall if is_online() else t3
+    """Return a fast cloud-first chain, or local Ollama when offline."""
+    return _make_waterfall(is_online())
+
+llm_waterfall = _make_waterfall(is_online())

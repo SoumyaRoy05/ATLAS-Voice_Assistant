@@ -22,7 +22,7 @@ if str(project_root) not in sys.path:
 from llm import get_llm
 
 # Vocal output organ
-from Organs.mouth import Mouth
+from Organs.mouth import speak
 
 # Persona & canned receipts
 from Behaviour.persona import get_system_prompt, get_offline_receipt
@@ -44,9 +44,9 @@ class BrainState(TypedDict, total=False):
 # 3. Brain Organ & Hierarchical LangGraph State Machine
 # -----------------------------------------------------------------------------
 class Brain:
-    def __init__(self, mouth: Mouth | None = None):
+    def __init__(self, mouth: Any | None = None):
         """Initializes vocal connections and compiles the multi-graph hierarchy."""
-        self.mouth: Mouth | None = mouth if mouth is not None else Mouth()
+        self.mouth: Any = mouth if mouth is not None else speak
         self.graph = self._build_master_graph()
 
     # used in the output sanitization node to strip formatting symbols before TTS
@@ -138,7 +138,7 @@ class Brain:
         """Hands the final sanitized text directly to mouth.py for TTS vocalization."""
         reply = state.get("final_response", "")
         if reply and self.mouth is not None:
-            self.mouth.speak(reply)
+            self.mouth(reply)
         return {}
 
 
@@ -227,8 +227,8 @@ class Brain:
     def think(self, user_prompt: str) -> str:
         """Invoked by ears.take_input() to run the complete master cognitive graph."""
 
+        print("\n# ------------- BRAIN is thinking ------------- #")
         print(f"[Brain]: Received user prompt: {user_prompt}", flush=True)
-        print("[Brain]: Thinking...", flush=True)
 
         if not user_prompt or not user_prompt.strip():
             return ""

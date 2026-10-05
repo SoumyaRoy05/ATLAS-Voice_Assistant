@@ -1,96 +1,140 @@
-import sounddevice as sd
-import numpy as np
-import queue
-import threading
-from faster_whisper import WhisperModel
 
-# Make the project root available when this file is run directly.
 import sys
 from pathlib import Path
+import queue
+import numpy as np
+import sounddevice as sd
+from faster_whisper import WhisperModel
 
-project_root = Path(__file__).resolve().parent.parent
+# Make root-level modules importable when this file is run directly.
+project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+
 from Organs.brain import Brain
 
-#Settings for the Whisper model
-sample_rate = 16000 # Sample rate is the number of samples per second, in Hz
-block_duration = 0.5 # Block duration is the time interval between each audio block, in seconds
-chunk_duration = 5 # Chunk duration is the time interval for each audio chunk, in seconds
-channels = 1 # mono audio
-
-frames_per_block = int(sample_rate * block_duration)
-frames_per_chunk = int(sample_rate * chunk_duration)
-
-audio_queue = queue.Queue()
-audio_buffer = []
-speech_texts = []
+SAMPLE_RATE = 16000
+FRAME_DURATION_MS = 100  # 100ms chunks
+BLOCK_SIZE = int(SAMPLE_RATE * (FRAME_DURATION_MS / 1000.0))
+PHRASE_PAUSE_SECONDS = 0.6  # Silence pause to trigger instant transcription of a phrase
+SESSION_TIMEOUT_SECONDS = 4.0  # Continuous silence to conclude session and return all text
 
 
-# Model Setup
-model_size = "small"  # Use a smaller model for faster inference
+def calibrate_threshold(input_queue: queue.Queue, calibration_seconds: float = 1.0) -> float:
+    """Measures ambient noise floor to dynamically set speech detection threshold."""
+    print("Calibrating ambient noise floor (stay quiet)...")
+    frames = []
+    num_frames = int(calibration_seconds / (FRAME_DURATION_MS / 1000.0))
+    print(f"Expected frames: {num_frames}")
 
-print("[Ears]: Loading Whisper model...", flush=True)
-model = WhisperModel(model_size, device="cuda", compute_type="float32")
+    while len(frames) < num_frames:
+        try:
+            data = input_queue.get(timeout=0.5)
+            frames.append(data)
+        except queue.Empty:
+            pass
 
-# used to capture audio from the microphone and put it into a queue for processing
-def audio_callback(indata, frames, time, status):
-    """Callback function to capture audio from the microphone."""
-    if status:
-        print(status)
-    audio_queue.put(indata.copy())
+    concatenated = np.concatenate(frames)
+    ambient_rms = np.sqrt(np.mean(concatenated**2))
+    # Speech threshold set at 2.5x ambient noise, bounded by minimum floor
+    threshold = max(ambient_rms * 2.5, 0.015)
+    print(f"Calibrated energy threshold: {threshold:.4f}\n")
+    return threshold
 
-# used for continuously recording audio and storing it in a buffer for processing
-def recorder():
-    """Continuously records audio and stores it in a buffer."""
-    with sd.InputStream(samplerate=sample_rate, channels=channels,
-                        blocksize=frames_per_block, callback=audio_callback):
-        print("[Ears]: Listening...", flush=True)
 
+def transcribe_stream() -> str:
+    print("Loading the faster-whisper model on your CUDA (float16)...")
+    model = WhisperModel("base.en",
+                          device="cuda", 
+                          compute_type="float16",
+                          local_files_only=True)
+
+    audio_queue = queue.Queue()
+
+    def audio_callback(indata, frames, time_info, status):
+        if status:
+            pass
+        audio_queue.put(indata[:, 0].copy())
+
+    transcript_parts = []
+    phrase_buffer = []
+
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="float32",
+        blocksize=BLOCK_SIZE,
+        callback=audio_callback,
+    ):
+        energy_threshold = calibrate_threshold(audio_queue)
+
+        print("Start speaking (session will auto-stop after 4s of silence):\n")
+        print("# ------------- EARS are listening ------------- #\n")
+
+        silence_duration = 0.0
+        has_spoken_at_least_once = False
+        is_speaking = False
+
+        print("[Ears]:")
         while True:
-            sd.sleep(100)
+            try:
+                frame = audio_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
 
-# used for transcribing the audio in the buffer using the Whisper model
-def transcriber():
-    """Transcribes the audio in the buffer."""
+            # Calculate frame RMS energy
+            rms = np.sqrt(np.mean(frame**2))
 
-    global audio_buffer
-    global speech_texts
+            if rms >= energy_threshold:
+                # Voice detected
+                is_speaking = True
+                has_spoken_at_least_once = True
+                silence_duration = 0.0
+                phrase_buffer.append(frame)
+            else:
+                # Silence frame
+                silence_duration += FRAME_DURATION_MS / 1000.0
 
+                if is_speaking:
+                    phrase_buffer.append(frame)
 
-    while True:
-        block = audio_queue.get()
-        audio_buffer.append(block)
+                    # Short pause detected -> transcribe current phrase immediately
+                    if silence_duration >= PHRASE_PAUSE_SECONDS:
+                        is_speaking = False
 
-        total_frames = sum(len(b) for b in audio_buffer)
-        # rto check if we have enough frames to process a chunk
-        if total_frames >= frames_per_chunk:
-            audio_data = np.concatenate(audio_buffer)[:frames_per_chunk]
-            audio_buffer = [] # clear buffer after processing
+                        # Transcribe if accumulated audio is at least 0.4 seconds
+                        if len(phrase_buffer) * (FRAME_DURATION_MS / 1000.0) >= 0.4:
+                            audio_chunk = np.concatenate(phrase_buffer)
+                            segments, _ = model.transcribe(
+                                audio_chunk,
+                                beam_size=1,  # Lowest latency greedy decoding
+                                language="en",
+                                condition_on_previous_text=False,
+                                without_timestamps=True,
+                            )
+                            text = "".join(segment.text for segment in segments).strip()
+                            if text:
+                                print(f"{text} ", end="", flush=True)
+                                transcript_parts.append(text)
 
-            audio_data = audio_data.flatten().astype(np.float32)  # Flatten and convert to float32
+                        phrase_buffer.clear()
 
-            segments, _ = model.transcribe(
-                audio_data,
-                language="en",
-                beam_size=1,
-            )
+                # Session timeout check (triggered after 4s of quiet once speech began)
+                if has_spoken_at_least_once and silence_duration >= SESSION_TIMEOUT_SECONDS:
+                    print("\n\n[4 seconds of silence reached. Session ended.]\n")
+                    break
 
-            transcribed = False
-            for segment in segments:
-                transcribed = True
-                print(f"[Ears]: {segment.text}", flush=True)
-                speech_texts.append(segment.text.strip())
-
-            if not transcribed:
-                print(f"[Ears]: Prompt well recieved, Sir!", flush=True)
-                Brain().think(" ".join(speech_texts))
-                speech_texts = []  # Clear the list after speaking  
-                break
+    full_transcript = " ".join(transcript_parts).strip()
+    return full_transcript
 
 
 def hear():
-    print(f"[Ears]: At your command, Boss!", flush=True)
-    threading.Thread(target=recorder, daemon=True).start()
-    transcriber()
+    result = transcribe_stream()
+    print("--- Final Complete Prompt ---")
+    print(result)
+    Brain().think(result)
+
+
+if __name__ == "__main__":
+    hear()

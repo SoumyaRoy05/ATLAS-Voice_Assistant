@@ -1,103 +1,62 @@
-from dotenv import load_dotenv
-from typing import Any, cast
-import logging
+import os
 import warnings
+
+import numpy as np
+from dotenv import load_dotenv
 
 load_dotenv()
 
-# Just removing the warnings to be printed in the console, as they are not relevant to the user and can be confusing.
-class _WarningFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "unauthenticated requests to the HF Hub" not in record.getMessage()
-
-logging.getLogger("huggingface_hub").addFilter(_WarningFilter())
-logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-
-warnings.filterwarnings(
-    "ignore",
-    message=r"You are sending unauthenticated requests to the HF Hub.*",
-)
 warnings.filterwarnings(
     "ignore",
     message=r"dropout option adds dropout after all but last recurrent layer.*",
+    category=UserWarning,
 )
 warnings.filterwarnings(
     "ignore",
+    message=r".*torch\.nn\.utils\.weight_norm.*deprecated.*",
     category=FutureWarning,
 )
 
+# -------------------------------------------------------------- MAIN MOUTH PIPELINE -------------------------------------------------------------- 
+
+# Kokoro is already cached locally in this environment. Avoid unauthenticated
+# Hub requests unless the user explicitly provides an HF token.
+if not os.getenv("HF_TOKEN"):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import sounddevice as sd
-import numpy as np
+from kokoro import KPipeline
 
+# Keep the pipeline outside so the model stays in RAM
+pipeline = KPipeline(lang_code="b", repo_id="hexgrad/Kokoro-82M")
 
-# -----------------------------------------------------------------------------
-# 1. Environment & Model Paths
-# -----------------------------------------------------------------------------
-load_dotenv()
+def speak(text: str):
+    if not text or not text.strip():
+        return
 
+    reply = text.strip()
+    # Defined locally inside the function
+    voice = "bm_fable"
+    speed = 1.25
 
-# -----------------------------------------------------------------------------
-# 2. Vocal Motor Organ Class
-# -----------------------------------------------------------------------------
-class Mouth:
-    """Vocal output organ for Atlas.
+    print("# ------------- MOUTH is speaking ------------- #", flush=True)
+    print(f"[Mouth]: Final response: {reply}", flush=True)
 
-    Attempts Kokoro TTS synthesis; gracefully falls back to console output
-    if Kokoro is uninstalled, unconfigured, or encounters an error.
-    """
+    with sd.OutputStream(samplerate=24000, channels=1, dtype="float32") as output:
+        for _, _, audio in pipeline(
+            reply,
+            voice=voice,
+            speed=speed,
+            split_pattern=r"(?<=[.!?])\s+",
+        ):
+            if audio is None or isinstance(audio, str):
+                continue
+            if hasattr(audio, "cpu"):
+                audio = audio.cpu().numpy()
+            audio_array = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
+            if audio_array.size:
+                output.write(audio_array)
 
-    def speak(self, text: str) -> None:
-        """Synthesizes text using the Kokoro TTS model and plays the audio."""
-        print(f"[Mouth]: {text}", flush=True)
-
-        # import pyttsx3
-
-        # # 1. Initialize the TTS engine
-        # engine = pyttsx3.init()
-
-        # # 2. Adjust Speech Properties (Optional)
-        # # Speed (default is usually around 200)
-        # rate = engine.getProperty('rate')
-        # engine.setProperty('rate', 150)  # Slow it down a bit
-
-        # # Volume (0.0 min to 1.0 max)
-        # volume = engine.getProperty('volume')
-        # engine.setProperty('volume', 0.9)
-
-        # # 3. Change Voice (Optional)
-        # # 0 is male
-        # voices = list(cast(Any, engine.getProperty("voices")) or [])
-        # if voices:
-        #     engine.setProperty("voice", voices[0].id)
-
-        # # 4. Speak the Text
-        # engine.say(text)
-
-        # # 5. Process the cue and block until finished
-        # engine.runAndWait()
-
-        from contextlib import redirect_stdout
-        from contextlib import redirect_stderr
-        from io import StringIO
-
-        chunks: list[np.ndarray] = []
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            from kokoro import KPipeline
-
-            pipeline = KPipeline(
-                lang_code="b",
-                repo_id="hexgrad/Kokoro-82M",
-                device="cuda",
-            )
-
-            for _, _, audio in pipeline(text, voice="bm_george", speed=1.0):
-                audio_value = cast(Any, audio)
-                if audio_value is None or isinstance(audio_value, str):
-                    continue
-                if hasattr(audio_value, "cpu"):
-                    audio_value = audio_value.cpu().numpy()
-                chunks.append(np.asarray(audio_value))
-
-        if chunks:
-            sd.play(np.concatenate(chunks), samplerate=24000)
-            sd.wait()
+if __name__ == "__main__":
+    speak("Voice is assigned and working.")
+    speak("This is an example of text-to-speech synthesis using the Kokoro library to check my speech output.")

@@ -93,15 +93,33 @@ GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
 ```
 
-The LLM waterfall is configured in `llm.py`:
+The LLM waterfall is configured in `llm.py` and uses fast failure with an
+8-second request timeout and no provider retries:
 
-1. Gemini 3.7 Flash
-2. Gemini 2.0 Flash
-3. Groq Llama 3.3 70B
-4. Groq Llama 3.1 8B
+1. Groq `openai/gpt-oss-120b`
+2. Groq `openai/gpt-oss-20b`
+3. Gemini `gemini-3.8-flash`
+4. Gemini `gemini-3.7-flash`
 5. Local Ollama `qwen2.5:3b`
 
-When the connectivity probe reports that the machine is offline, the local Ollama model is selected directly. When online, the cloud models are tried in order and the configured fallbacks handle provider failures.
+Groq is tried first because both configured models were verified successfully.
+Gemini provides an independent cloud fallback, while Ollama is the final local
+fallback. Providers without a configured API key are skipped. When the
+connectivity probe reports that the machine is offline, Ollama is selected
+directly.
+
+The default timeout can be changed with `ATLAS_LLM_TIMEOUT`:
+
+```powershell
+$env:ATLAS_LLM_TIMEOUT="8"
+```
+
+To enable the local fallback, start Ollama and make sure the model is installed:
+
+```powershell
+ollama serve
+ollama pull qwen2.5:3b
+```
 
 ## Running ATLAS
 
@@ -154,7 +172,11 @@ Confirm that the NVIDIA driver, CUDA-compatible PyTorch build, and GPU memory ar
 
 ### Cloud model errors
 
-Verify the relevant API key in `.env`. If the machine is offline, make sure Ollama is running and that `qwen2.5:3b` is installed.
+Verify the relevant API key in `.env`. The waterfall uses Groq first and falls
+back to Gemini and then Ollama when a provider is unavailable. Gemini may return
+temporary `503` overload or `504` timeout errors; these are handled by the
+fallback chain. If all cloud providers fail, make sure Ollama is running and
+that `qwen2.5:3b` is installed.
 
 ### Kokoro errors
 
