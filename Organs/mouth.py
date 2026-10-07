@@ -70,10 +70,6 @@ def speak(text: str):
             if audio_array.size: # Only write to the output stream if the audio array is not empty
                 output.write(audio_array)
 
-    from Organs.ears import hear
-    hear()
-
-
 if __name__ == "__main__":
     speak("Voice is assigned and working.")
     speak("This is an example of text-to-speech synthesis using the Kokoro library to check my speech output.")

@@ -1,10 +1,11 @@
 import re
 import sys
+from collections import deque # used for maintaining a history of messages for context
 from pathlib import Path
 from typing import Any, List, TypedDict
 from dotenv import load_dotenv
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 
@@ -43,10 +44,14 @@ class BrainState(TypedDict, total=False):
 # -----------------------------------------------------------------------------
 # 3. Brain Multi-Graph Stateful Orchestration
 # -----------------------------------------------------------------------------
+
 class Brain:
+
+    # Stores the Mouth function, Creates the conversation memory, Builds the Brain’s LangGraph workflow
     def __init__(self, mouth: Any | None = None):
         """Initializes vocal connections and compiles the multi-graph hierarchy."""
         self.mouth: Any = mouth if mouth is not None else speak
+        self.history: deque[BaseMessage] = deque(maxlen=40) # keeps the latest 40 messages for context
         self.graph = self._build_master_graph()
 
 
@@ -68,6 +73,7 @@ class Brain:
         sys_prompt = get_system_prompt()
         dialogue: List[BaseMessage] = [
             SystemMessage(content=sys_prompt),
+            *self.history, # include the history (last 40 messages) for context in API calls
             HumanMessage(content=state.get("user_prompt", "")),
         ]
         return {
@@ -141,6 +147,13 @@ class Brain:
         if reply and self.mouth is not None:
             self.mouth(reply)
         return {}
+
+    # remembers a response spoken outside the cognitive graph, such as the wake receipt or other assistant messages
+    # takes a string message and appends it to the history deque for context in future interactions
+    def remember_assistant_message(self, message: str) -> None:
+        """Remember a response spoken outside the cognitive graph."""
+        if message and message.strip():
+            self.history.append(AIMessage(content=message.strip()))
 
 
     # =========================================================================
@@ -252,7 +265,13 @@ class Brain:
         # Run the master graph with the initial state and a specific run configuration
         run_config: RunnableConfig = {"run_name": "Atlas-Master-Cognitive-Turn"}
         result = self.graph.invoke(initial_state, config=run_config)
-        return result.get("final_response", "")
+        final_response = result.get("final_response", "")
+
+        # Remember prompt and response in history for context in future interactions
+        self.history.append(HumanMessage(content=user_prompt.strip())) # Remember the user prompt in history
+        self.history.append(AIMessage(content=final_response)) # Remember the assistant's response in history
+
+        return final_response
 
 
 if __name__ == "__main__":

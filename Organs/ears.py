@@ -12,8 +12,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 
-from Organs.brain import Brain
-
 SAMPLE_RATE = 16000
 FRAME_DURATION_MS = 100  # 100ms chunks
 BLOCK_SIZE = int(SAMPLE_RATE * (FRAME_DURATION_MS / 1000.0))
@@ -42,12 +40,13 @@ def calibrate_threshold(input_queue: queue.Queue, calibration_seconds: float = 1
     return threshold
 
 
-def transcribe_stream() -> str:
+def transcribe_stream(model: WhisperModel | None = None) -> str:
 
-    model = WhisperModel("base.en",
-                          device="cuda", 
-                          compute_type="float16",
-                          local_files_only=True)
+    if model is None:
+        model = WhisperModel("base.en",
+                             device="cuda",
+                             compute_type="float16",
+                             local_files_only=True)
 
     audio_queue = queue.Queue()
 
@@ -129,10 +128,9 @@ def transcribe_stream() -> str:
     return full_transcript
 
 
-def hear():
-    result = transcribe_stream()
-    Brain().think(result)
+def hear(model: WhisperModel | None = None) -> str:
+    return transcribe_stream(model)
 
 
 if __name__ == "__main__":
-    hear()
+    print(hear())

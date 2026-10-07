@@ -1,8 +1,8 @@
 import os
 import sys
-import time
 from pathlib import Path
 from dotenv import load_dotenv
+from faster_whisper import WhisperModel
 
 # -----------------------------------------------------------------------------
 # 1. Hardware Acceleration & Dynamic Environment Setup
@@ -29,6 +29,7 @@ if not os.getenv("HF_HOME"):
 # -----------------------------------------------------------------------------
 from Organs.ears import hear  # Auditory sensory organ: wake word detection + speech-to-text
 from Organs.mouth import speak  # Vocal organ: text-to-speech synthesis
+from Organs.brain import Brain
 from Behaviour.persona import get_wake_receipt
 
 
@@ -46,26 +47,31 @@ def main() -> None:
     print("               ATLAS DIGITAL STEWARD ONLINE                 ")
     print("=" * 60)
     print("\n")
-    print("------- Central Nervous Systems[CNS] Engaged -------")
-    print("[CNS] Initializing acoustic and cognitive subsystems...")
-
-    ears = None
 
     try:
+        print("------- Central Nervous System [CNS] Engaged -------")
+        print("[CNS] Initializing acoustic and cognitive subsystems...")
+
+        # the brain instance stores the mouth function for later use in the conversation loop
+        brain = Brain(mouth=speak)
+        wake_receipt = get_wake_receipt()
+        brain.remember_assistant_message(wake_receipt) # Remember the wake receipt in the brain's history
+        speak(wake_receipt)
+
         print("[CNS] Ignition sequence complete. Acoustic sensory organ active.")
-
-        # Instantiates Mouth, which internally connects to the TTS engine
-        mouth = speak(get_wake_receipt()) # using wake receipt from persona, it gives unique response each time
-
-        # Instantiates Ears, which internally connects to Brain and Mouth
         print("Loading the faster-whisper model on your CUDA (float16)...")
-        print("Calibrating ambient noise floor (stay quiet)...")
-        ears = hear()
-        
-        # Starts the uninterrupted listening loop:
-        # Ears (OWW + Whisper) -> Brain (LangGraph + LLM) -> Mouth (Kokoro/TTS)
+        whisper_model = WhisperModel(
+            "base.en",
+            device="cuda",
+            compute_type="float16",
+            local_files_only=True,
+        )
+
+        # Reuse one Brain and one Whisper model for the complete session.
         while True:
-            time.sleep(1)  # Keep the supervisor alive without constantly consuming CPU
+            transcript = hear(whisper_model)
+            if transcript:
+                brain.think(transcript)
 
     except KeyboardInterrupt:
         print("\n[CNS] Manual keyboard interrupt received. Commencing safe teardown...")
@@ -77,10 +83,6 @@ def main() -> None:
         print(f"\n[CNS - Critical Fault]: Unhandled pipeline exception: {e}")
 
     finally:
-        # Guarantee audio buffers, PortAudio streams, and GPU allocations release cleanly
-        stop = getattr(ears, "stop", None) if ears is not None else None
-        if callable(stop):
-            stop()
         print("[CNS] Audio hardware unhooked. GPU contexts released. System offline.")
 
 
