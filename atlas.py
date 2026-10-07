@@ -53,6 +53,8 @@ def main() -> None:
     try:
         print("------- Central Nervous System [CNS] Engaged -------")
         print("[CNS] Initializing acoustic and cognitive subsystems...")
+        print("[CNS] Ignition sequence complete. Acoustic sensory organ active.")
+        print("[CNS] Loading the faster-whisper model on your CUDA (float16)...")
 
         # the brain instance stores the mouth function for later use in the conversation loop
         brain = Brain(mouth=speak)
@@ -60,8 +62,6 @@ def main() -> None:
         brain.remember_assistant_message(wake_receipt) # Remember the wake receipt in the brain's history
         speak(wake_receipt)
 
-        print("[CNS] Ignition sequence complete. Acoustic sensory organ active.")
-        print("Loading the faster-whisper model on your CUDA (float16)...")
         whisper_model = WhisperModel(
             "base.en",
             device="cuda",

@@ -129,7 +129,19 @@ ollama pull qwen2.5:3b
 
 ## Running ATLAS
 
-Start the application with:
+Start the local application interface with:
+
+```powershell
+uv run python Application/launcher.py
+```
+
+The launcher starts the local FastAPI server, waits for it to become ready, and
+opens the Atlas interface in your browser. Keep the launcher terminal open
+while using the interface. Click **Start Atlas** to start the voice assistant,
+and click **Stop Atlas** to stop it. Press `Ctrl+C` in the launcher terminal to
+close the local server.
+
+To run the voice controller directly without the application interface:
 
 ```powershell
 uv run python atlas.py
