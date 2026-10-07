@@ -1,4 +1,16 @@
+# ---------- Warnings Enclosure ---------- #
+
 import logging
+
+class _AfcWarningFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Direct use of automatic function calling" not in record.getMessage()
+
+
+logging.getLogger("google_genai.models").addFilter(_AfcWarningFilter())
+
+# ---------- LLM CONFIGURATION ---------- #
+
 import os
 import socket
 from pathlib import Path
@@ -11,23 +23,6 @@ from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
-
-
-class _AfcWarningFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "Direct use of automatic function calling" not in record.getMessage()
-
-
-logging.getLogger("google_genai.models").addFilter(_AfcWarningFilter())
-
-def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.0) -> bool:
-    """Checks DNS connectivity to skip cloud timeouts when offline."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            pass
-        return True
-    except OSError:
-        return False
 
 
 gemini_key = os.getenv("GEMINI_API_KEY")
@@ -74,13 +69,28 @@ t3 = ChatOllama(model="qwen2.5:3b", temperature=0.7, num_predict=128)
 
 
 def _available_cloud_models():
+    """Returns a list of available cloud models based on the presence of API keys."""
     return [provider for provider in (t1a, t1b, t2a, t2b) if provider is not None]
 
 
 def _make_waterfall(online: bool):
+    """Constructs a waterfall chain of LLMs based on online availability."""
+
+    # If online, include cloud models first; otherwise, only use the local Ollama model.
     candidates = _available_cloud_models() + [t3] if online else [t3]
+    # The first model in the list is considered the primary, and the rest are fallbacks.
     primary, *fallbacks = candidates
     return primary.with_fallbacks(fallbacks, exceptions_to_handle=(Exception,))
+
+
+def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.0) -> bool:
+    """Checks DNS connectivity to skip cloud timeouts when offline."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+        return True
+    except OSError:
+        return False
 
 
 def get_llm():

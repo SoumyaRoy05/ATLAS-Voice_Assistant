@@ -29,7 +29,7 @@ from Behaviour.persona import get_system_prompt, get_offline_receipt
 
 
 # -----------------------------------------------------------------------------
-# 2. Cognitive State Definition
+# 2. State Schema
 # -----------------------------------------------------------------------------
 class BrainState(TypedDict, total=False):
     user_prompt: str
@@ -41,7 +41,7 @@ class BrainState(TypedDict, total=False):
 
 
 # -----------------------------------------------------------------------------
-# 3. Brain Organ & Hierarchical LangGraph State Machine
+# 3. Brain Multi-Graph Stateful Orchestration
 # -----------------------------------------------------------------------------
 class Brain:
     def __init__(self, mouth: Any | None = None):
@@ -49,7 +49,8 @@ class Brain:
         self.mouth: Any = mouth if mouth is not None else speak
         self.graph = self._build_master_graph()
 
-    # used in the output sanitization node to strip formatting symbols before TTS
+
+    # used at Graph 3 in the output sanitization node to strip formatting symbols before TTS
     def _sanitize_for_tts(self, text: str) -> str:
         """Strips formatting symbols to prevent speech synthesis glitches."""
         clean = re.sub(r"[\*\_#\>\-`]", "", text)
@@ -57,7 +58,7 @@ class Brain:
 
 
     # =========================================================================
-    # GRAPH 1 NODES: INPUT QUERY PREPARATION & LLM SELECTION
+    # GRAPH 1 NODES: Prepares the Input with respect to Persona & Selects LLM from llm.py
     # =========================================================================
 
     # uses the get_system_prompt() from persona.py to construct the system prompt and dialogue messages
@@ -83,7 +84,7 @@ class Brain:
 
 
     # =========================================================================
-    # GRAPH 2 NODES: COGNITIVE PROCESSING VIA LLM INVOCATION
+    # GRAPH 2 NODES: Invoke LLM and Extract Raw Output (Main  Cognitive Processing)
     # =========================================================================
 
     # uses the selected LLM from the BrainState to invoke the LLM and extract the raw output text
@@ -116,7 +117,7 @@ class Brain:
 
 
     # =========================================================================
-    # GRAPH 3 NODES: SANITIZATION & DIRECT VOCAL MOTOR OUTPUT
+    # GRAPH 3 NODES: Sanitixe the Output from LLM and Dispatch to Mouth for TTS
     # =========================================================================
 
     # uses the get_offline_receipt() from persona.py to provide a fallback response if the LLM output is empty
@@ -152,9 +153,11 @@ class Brain:
         """Graph 1: Ingests user input, formats persona directives, and picks the LLM."""
         workflow = StateGraph(BrainState)
 
+        # Nodes---
         workflow.add_node("prepare_input", self.prepare_input_node)
         workflow.add_node("select_llm", self.select_llm_node)
 
+        # Edges---
         workflow.add_edge(START, "prepare_input")
         workflow.add_edge("prepare_input", "select_llm")
         workflow.add_edge("select_llm", END)
@@ -167,8 +170,10 @@ class Brain:
         """Graph 2: Executes llm.invoke and isolates the raw generated output."""
         workflow = StateGraph(BrainState)
 
+        # Nodes---
         workflow.add_node("invoke_llm", self.processing)
 
+        # Edges---
         workflow.add_edge(START, "invoke_llm")
         workflow.add_edge("invoke_llm", END)
 
@@ -180,9 +185,11 @@ class Brain:
         """Graph 3: Sanitizes generated text and dispatches directly to mouth.speak."""
         workflow = StateGraph(BrainState)
 
+        # Nodes---
         workflow.add_node("sanitize_output", self.sanitize_output_node)
         workflow.add_node("mouth_speak", self.mouth_speak_node)
 
+        # Edges---
         workflow.add_edge(START, "sanitize_output")
         workflow.add_edge("sanitize_output", "mouth_speak")
         workflow.add_edge("mouth_speak", END)
@@ -205,12 +212,12 @@ class Brain:
 
         master = StateGraph(BrainState)
 
-        # Mount compiled subgraphs as discrete nodes
+        # Nodes---
         master.add_node("input_preparation_graph", graph_1)
         master.add_node("processing_graph", graph_2)
         master.add_node("mouth_output_graph", graph_3)
 
-        # Sequential flow across the subgraphs
+        # Edges---
         master.add_edge(START, "input_preparation_graph")
         master.add_edge("input_preparation_graph", "processing_graph")
         master.add_edge("processing_graph", "mouth_output_graph")
@@ -228,7 +235,7 @@ class Brain:
         """Invoked by ears.take_input() to run the complete master cognitive graph."""
 
         print("\n# ------------- BRAIN is thinking ------------- #")
-        print(f"[Brain]: Received user prompt: {user_prompt}", flush=True)
+        print(f"[Brain]---\nReceived user prompt: {user_prompt}", flush=True)
 
         if not user_prompt or not user_prompt.strip():
             return ""

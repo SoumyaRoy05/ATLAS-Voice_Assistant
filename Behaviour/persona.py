@@ -11,6 +11,7 @@ ASSISTANT_ALIASES = ["Atlas", "Buddy", "Pal"]
 NOBLE_TITLES = [
     "Boss",
     "Sir",
+    "Lord",
 ]
 
 # Spontaneous demeanor shifts
@@ -78,10 +79,13 @@ OPERATIONAL DIRECTIVES:
 # Reflex receipts are short, polite, and contextually appropriate responses Atlas can use to acknowledge commands or system states. 
 # Each function randomly selects a response from a predefined list, optionally incorporating a noble title for personalization.
 
+
 # When Atlas is awakened, he acknowledges that he is now active and ready to process commands.
 def get_wake_receipt(forced_title: Optional[str] = None) -> str:
     title = forced_title if forced_title else random.choice(NOBLE_TITLES)
     return random.choice(WAKE_RESPONSES).format(title=title)
+
+
 
 # When Atlas is dismissed, he acknowledges that he is now inactive and will not respond to further commands until reactivated.
 def get_dismiss_receipt(forced_title: Optional[str] = None) -> str:

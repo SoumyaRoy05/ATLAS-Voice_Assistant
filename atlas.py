@@ -28,6 +28,8 @@ if not os.getenv("HF_HOME"):
 # 2. Sensory Organ Import
 # -----------------------------------------------------------------------------
 from Organs.ears import hear  # Auditory sensory organ: wake word detection + speech-to-text
+from Organs.mouth import speak  # Vocal organ: text-to-speech synthesis
+from Behaviour.persona import get_wake_receipt
 
 
 # -----------------------------------------------------------------------------
@@ -39,17 +41,27 @@ def main() -> None:
     Initializes hardware contexts, boots the acoustic sensory organ,
     and supervises the event loop until clean termination.
     """
+    print("\n")
     print("=" * 60)
     print("               ATLAS DIGITAL STEWARD ONLINE                 ")
     print("=" * 60)
+    print("\n")
+    print("------- Central Nervous Systems[CNS] Engaged -------")
     print("[CNS] Initializing acoustic and cognitive subsystems...")
 
     ears = None
 
     try:
-        # Instantiates Ears, which internally connects to Brain and Mouth
-        ears = hear()
         print("[CNS] Ignition sequence complete. Acoustic sensory organ active.")
+
+        # Instantiates Mouth, which internally connects to the TTS engine
+        mouth = speak(get_wake_receipt()) # using wake receipt from persona, it gives unique response each time
+
+        # Instantiates Ears, which internally connects to Brain and Mouth
+        print("Loading the faster-whisper model on your CUDA (float16)...")
+        print("Calibrating ambient noise floor (stay quiet)...")
+        ears = hear()
+        
         # Starts the uninterrupted listening loop:
         # Ears (OWW + Whisper) -> Brain (LangGraph + LLM) -> Mouth (Kokoro/TTS)
         while True:

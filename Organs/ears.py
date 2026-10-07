@@ -23,10 +23,9 @@ SESSION_TIMEOUT_SECONDS = 4.0  # Continuous silence to conclude session and retu
 
 def calibrate_threshold(input_queue: queue.Queue, calibration_seconds: float = 1.0) -> float:
     """Measures ambient noise floor to dynamically set speech detection threshold."""
-    print("Calibrating ambient noise floor (stay quiet)...")
+    
     frames = []
     num_frames = int(calibration_seconds / (FRAME_DURATION_MS / 1000.0))
-    print(f"Expected frames: {num_frames}")
 
     while len(frames) < num_frames:
         try:
@@ -39,12 +38,12 @@ def calibrate_threshold(input_queue: queue.Queue, calibration_seconds: float = 1
     ambient_rms = np.sqrt(np.mean(concatenated**2))
     # Speech threshold set at 2.5x ambient noise, bounded by minimum floor
     threshold = max(ambient_rms * 2.5, 0.015)
-    print(f"Calibrated energy threshold: {threshold:.4f}\n")
+
     return threshold
 
 
 def transcribe_stream() -> str:
-    print("Loading the faster-whisper model on your CUDA (float16)...")
+
     model = WhisperModel("base.en",
                           device="cuda", 
                           compute_type="float16",
@@ -68,15 +67,16 @@ def transcribe_stream() -> str:
         callback=audio_callback,
     ):
         energy_threshold = calibrate_threshold(audio_queue)
-
+        
         print("Start speaking (session will auto-stop after 4s of silence):\n")
-        print("# ------------- EARS are listening ------------- #\n")
-
+        print("# ------------- EARS are listening ------------- #")
+        print(f"Calibrated energy threshold: {energy_threshold:.4f}\n")
+        
         silence_duration = 0.0
         has_spoken_at_least_once = False
         is_speaking = False
 
-        print("[Ears]:")
+        print("[Ears]---")
         while True:
             try:
                 frame = audio_queue.get(timeout=0.2)
@@ -131,8 +131,6 @@ def transcribe_stream() -> str:
 
 def hear():
     result = transcribe_stream()
-    print("--- Final Complete Prompt ---")
-    print(result)
     Brain().think(result)
 
 

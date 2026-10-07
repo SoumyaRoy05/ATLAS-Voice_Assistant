@@ -1,5 +1,7 @@
 import os
+import sys
 import warnings
+from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
@@ -24,6 +26,12 @@ warnings.filterwarnings(
 if not os.getenv("HF_TOKEN"):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+# Make root-level packages importable when this file is run directly.
+project_root = Path(__file__).resolve().parents[1]
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+
 import sounddevice as sd
 from kokoro import KPipeline
 
@@ -39,23 +47,32 @@ def speak(text: str):
     voice = "bm_fable"
     speed = 1.25
 
-    print("# ------------- MOUTH is speaking ------------- #", flush=True)
-    print(f"[Mouth]: Final response: {reply}", flush=True)
-
+    # Use a context manager to ensure the output stream is properly closed after use
     with sd.OutputStream(samplerate=24000, channels=1, dtype="float32") as output:
+        print("\n# ------------- MOUTH is speaking ------------- #", flush=True)
+        print(f"[Mouth]---\nFinal response: {reply}", flush=True)
+    
         for _, _, audio in pipeline(
             reply,
             voice=voice,
             speed=speed,
             split_pattern=r"(?<=[.!?])\s+",
         ):
-            if audio is None or isinstance(audio, str):
+            
+            if audio is None or isinstance(audio, str): # Skip if audio is None or an error message
                 continue
-            if hasattr(audio, "cpu"):
+            
+            if hasattr(audio, "cpu"): # Convert PyTorch tensor to NumPy array if it's a tensor
                 audio = audio.cpu().numpy()
-            audio_array = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
-            if audio_array.size:
+            
+            audio_array = np.asarray(audio, dtype=np.float32).reshape(-1, 1) # Ensure audio is a 2D array for the output stream
+            
+            if audio_array.size: # Only write to the output stream if the audio array is not empty
                 output.write(audio_array)
+
+    from Organs.ears import hear
+    hear()
+
 
 if __name__ == "__main__":
     speak("Voice is assigned and working.")
