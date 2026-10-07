@@ -12,20 +12,26 @@ The project is designed for a Windows machine with an NVIDIA GPU, but the langua
 
 ```mermaid
 flowchart TD
-	A[Microphone] --> B[Ears: SoundDevice]
+	A[atlas.py: CNS controller] --> B[Ears: SoundDevice]
 	B --> C[Faster Whisper transcription]
-	C --> D[Brain: prepare input]
-	D --> E[Select LLM]
-	E --> F[Generate response]
-	F --> G[Sanitize response]
-	G --> H[Mouth: Kokoro TTS]
-	H --> I[Audio output]
+	C --> D[Transcript returned to CNS]
+	D --> E[Brain: history and prompt]
+	E --> F[Select LLM]
+	F --> G[Generate response]
+	G --> H[Sanitize response]
+	H --> I[Mouth: Kokoro TTS]
+	I --> A
 ```
+
+The central nervous system creates one Brain and one Whisper model for the
+session. Ears only listens and returns a transcript; the CNS passes that text
+to Brain. Brain includes recent conversation history in the next LLM request,
+and Mouth only speaks the response.
 
 ### Brain graphs
 
 The brain is composed of three subgraphs:
-1. **Input preparation graph**: builds the persona system prompt and the user message, then selects the active LLM.
+1. **Input preparation graph**: builds the persona system prompt, recent conversation history, and the user message, then selects the active LLM.
 2. **Processing graph**: invokes the selected LLM and extracts its text response.
 3. **Speech graph**: sanitizes the response for speech and passes it to the mouth organ.
   
@@ -35,7 +41,7 @@ The **Master graph** executes those three subgraphs sequentially.
 
 ```text
 ATLAS-Voice_Assistant/
-├── atlas.py                   # Application supervisor and main entry point
+├── atlas.py                   # Central nervous system controller and entry point
 ├── llm.py                     # Online/offline LLM selection and fallback chain
 ├── pyproject.toml             # Project metadata and dependencies
 ├── workflow.ipynb             # Notebook that renders graph diagrams as PNGs
@@ -131,11 +137,29 @@ uv run python atlas.py
 
 The application initializes the audio and model components, starts microphone listening, transcribes a spoken prompt, sends the completed prompt to the brain, and speaks the response.
 
+At startup, Atlas speaks one randomized wake response. It then repeats the
+following cycle until interrupted:
+
+```text
+Listen -> transcribe -> think -> remember -> speak -> listen again
+```
+
 Press `Ctrl+C` to request shutdown.
 
 ### Current listening behavior
 
-The current `ears.py` implementation records and transcribes one prompt cycle. It treats a five-second audio chunk with no recognized speech as the end of the prompt, sends the collected text to the brain, and exits that transcription cycle. Continuous multi-prompt listening will require calling the listening entry point again or extending the recorder/transcriber loop.
+The `ears.py` implementation measures the ambient noise floor, detects speech
+using audio energy, and sends speech segments to Faster Whisper after a
+0.6-second pause. A session ends after four seconds of silence following
+speech. The CNS then sends the returned transcript to the same Brain and starts
+the next listening cycle.
+
+The Whisper model is loaded once and reused. Brain keeps the latest 40 messages
+in memory, including user requests and Atlas responses. This context is
+cleared when Atlas exits; it is not yet persisted across application restarts.
+
+The current implementation does not use a dedicated wake-word detector. Atlas
+speaks its wake response at startup and begins listening immediately.
 
 ## Viewing the graph flowcharts
 
@@ -186,14 +210,20 @@ The mouth organ always prints the generated response before attempting speech sy
 
 - The project uses LangGraph `StateGraph` to make the brain pipeline explicit and visualizable.
 - The persona is generated dynamically, including a title and demeanor selected for each request.
+- The CNS owns the session lifecycle and reuses one Brain and one Whisper model.
+- Ears returns transcripts without knowing about Brain conversation history.
+- Brain history is bounded to 40 messages to balance context, latency, and token usage.
 - Brain responses are sanitized before text-to-speech so Markdown formatting is not spoken aloud.
 - Do not commit `.env` or API keys to source control.
 
-## Future imporvements
+## Future improvements
 
 - Add a **GUI** for configuration and status display
 - Further **tools in the second graph** for LLM processing or thinking
 - Implementation of **RAG (retrieval-augmented generation)** for knowledge retrieval and context-aware responses
 - Further **Behavioural files** will be added to update the tonality and the respose format of the assistant
-- Continuous listening and multi-prompt handling
+- Persistent conversation memory across Atlas restarts
+- Token-aware history trimming or summarization
+- A pre-roll audio buffer to preserve the first sounds of a sudden question
+- Dedicated wake-word detection and standby mode
 - Add a local knowledge base for offline operation
