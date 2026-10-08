@@ -54,18 +54,30 @@ class Brain:
         self.history: deque[BaseMessage] = deque(maxlen=40) # keeps the latest 40 messages for context
         self.graph = self._build_master_graph()
 
+    # ------------------------------- Sub Functions ------------------------------- #
+    # Sub functions/methods used by node functions to perform specific tasks within the respective graph
 
+    # sub function 1
     # used at Graph 3 in the output sanitization node to strip formatting symbols before TTS
     def _sanitize_for_tts(self, text: str) -> str:
         """Strips formatting symbols to prevent speech synthesis glitches."""
         clean = re.sub(r"[\*\_#\>\-`]", "", text)
         return " ".join(clean.split()).strip()
 
+    # sub function 2
+    # remembers a response spoken outside the cognitive graph, such as the wake receipt or other assistant messages
+    # takes a string message and appends it to the history deque for context in future interactions
+    def remember_assistant_message(self, message: str) -> None:
+        """Remember a response spoken outside the cognitive graph."""
+        if message and message.strip():
+            self.history.append(AIMessage(content=message.strip()))
+
 
     # =========================================================================
     # GRAPH 1 NODES: Prepares the Input with respect to Persona & Selects LLM from llm.py
     # =========================================================================
 
+    # Node Function 1A
     # uses the get_system_prompt() from persona.py to construct the system prompt and dialogue messages
     # takes the user prompt from the BrainState and constructs a list of messages for the LLM to process
     def prepare_input_node(self, state: BrainState) -> dict:
@@ -81,6 +93,7 @@ class Brain:
             "messages": dialogue,
         }
 
+    # Node Function 1B
     # uses the get_llm() function from llm.py to select the active LLM instance for processing
     # takes the BrainState and returns the llm to be used
     def select_llm_node(self, state: BrainState) -> dict:
@@ -93,9 +106,10 @@ class Brain:
     # GRAPH 2 NODES: Invoke LLM and Extract Raw Output (Main  Cognitive Processing)
     # =========================================================================
 
+    # Node Function 2A
     # uses the selected LLM from the BrainState to invoke the LLM and extract the raw output text
     # takes the BrainState and returns the raw output text from the LLM
-    def processing(self, state: BrainState) -> dict:
+    def processing_node(self, state: BrainState) -> dict:
         """Invokes the selected LLM and extracts solely the raw output text."""
         llm = state.get("selected_llm")
         if llm is None:
@@ -126,6 +140,7 @@ class Brain:
     # GRAPH 3 NODES: Sanitixe the Output from LLM and Dispatch to Mouth for TTS
     # =========================================================================
 
+    # Node Function 3A
     # uses the get_offline_receipt() from persona.py to provide a fallback response if the LLM output is empty
     # uses the _sanitize_for_tts() method to clean the raw output text for speech synthesis
     # takes the BrainState and returns the final sanitized output text for TTS
@@ -139,6 +154,8 @@ class Brain:
 
         return {"final_response": clean_reply}
 
+
+    # Node Function 3B
     # uses the speak() from mouth.py module to vocalize the final sanitized text
     # takes the BrainState and returns an empty dict
     def mouth_speak_node(self, state: BrainState) -> dict:
@@ -148,18 +165,12 @@ class Brain:
             self.mouth(reply)
         return {}
 
-    # remembers a response spoken outside the cognitive graph, such as the wake receipt or other assistant messages
-    # takes a string message and appends it to the history deque for context in future interactions
-    def remember_assistant_message(self, message: str) -> None:
-        """Remember a response spoken outside the cognitive graph."""
-        if message and message.strip():
-            self.history.append(AIMessage(content=message.strip()))
-
 
     # =========================================================================
     # SUBGRAPH BUILDERS
     # =========================================================================
 
+    # Subgraph 1
     # builds the first subgraph that prepares the user input and selects the appropriate LLM for processing
     # returns a compiled StateGraph that can be invoked with the BrainState
     def ready_for_processing(self):
@@ -171,12 +182,13 @@ class Brain:
         workflow.add_node("select_llm", self.select_llm_node)
 
         # Edges---
-        workflow.add_edge(START, "prepare_input")
-        workflow.add_edge("prepare_input", "select_llm")
-        workflow.add_edge("select_llm", END)
+        workflow.add_edge(START, "select_llm")
+        workflow.add_edge("select_llm", "prepare_input")
+        workflow.add_edge("prepare_input", END)
 
         return workflow.compile()
 
+    # Subgraph 2
     # builds the second subgraph that invokes the selected LLM and extracts the raw output text
     # returns a compiled StateGraph that can be invoked with the BrainState
     def _build_processing_graph(self):
@@ -184,7 +196,7 @@ class Brain:
         workflow = StateGraph(BrainState)
 
         # Nodes---
-        workflow.add_node("invoke_llm", self.processing)
+        workflow.add_node("invoke_llm", self.processing_node)
 
         # Edges---
         workflow.add_edge(START, "invoke_llm")
@@ -192,6 +204,7 @@ class Brain:
 
         return workflow.compile()
 
+    # Subgraph 3
     # builds the third subgraph that sanitizes the raw output text and dispatches it to the mouth for TTS
     # returns a compiled StateGraph that can be invoked with the BrainState
     def ready_to_speak(self):
@@ -239,7 +252,7 @@ class Brain:
         return master.compile()
 
     # =========================================================================
-    # SENSORY ENTRYPOINT
+    # SENSORY ENTRYPOINT(Main calling function for the Brain)
     # =========================================================================
 
     # invoked by ears.take_input() to run the complete master cognitive graph

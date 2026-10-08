@@ -92,7 +92,9 @@ def is_online(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.0) -> bo
     except OSError:
         return False
 
-
+# -----------------------------------------------------------------------------
+# LLM ENTRYPOINT(Main calling function for the LLM)
+# -----------------------------------------------------------------------------
 def get_llm():
     """Return a fast cloud-first chain, or local Ollama when offline."""
     return _make_waterfall(is_online())

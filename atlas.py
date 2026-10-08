@@ -75,12 +75,15 @@ def main() -> None:
             if transcript:
                 brain.think(transcript)
 
+    # Handle manual keyboard interrupts (e.g., Ctrl+C) for graceful shutdown
     except KeyboardInterrupt:
         print("\n[CNS] Manual keyboard interrupt received. Commencing safe teardown...")
 
+    # Handle system exit signals (e.g., from a shutdown command)
     except SystemExit:
         print("\n[CNS] System power-down command confirmed. Standing down...")
 
+    # Handle any other unexpected exceptions to prevent the program from crashing silently
     except Exception as e:
         print(f"\n[CNS - Critical Fault]: Unhandled pipeline exception: {e}")
 

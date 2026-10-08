@@ -39,8 +39,10 @@ def calibrate_threshold(input_queue: queue.Queue, calibration_seconds: float = 1
 
     return threshold
 
-
-def transcribe_stream(model: WhisperModel | None = None) -> str:
+# -----------------------------------------------------------------------------
+# SENSORY ENTRYPOINT(Main calling function for the Ears)
+# -----------------------------------------------------------------------------
+def hear(model: WhisperModel | None = None) -> str:
 
     if model is None:
         model = WhisperModel("base.en",
@@ -126,10 +128,6 @@ def transcribe_stream(model: WhisperModel | None = None) -> str:
 
     full_transcript = " ".join(transcript_parts).strip()
     return full_transcript
-
-
-def hear(model: WhisperModel | None = None) -> str:
-    return transcribe_stream(model)
 
 
 if __name__ == "__main__":
